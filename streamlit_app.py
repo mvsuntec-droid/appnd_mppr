@@ -55,10 +55,28 @@ def normalize_customer_id(value):
 
 
 def read_any_table(uploaded_file):
-    """Read CSV or Excel into a DataFrame."""
-    if uploaded_file.name.lower().endswith(".csv"):
-        return pd.read_csv(uploaded_file)
+    """
+    Read CSV or Excel into a DataFrame.
+    CSVs are tried with UTF-8 first, then latin-1, then latin-1 with errors='ignore'
+    to avoid UnicodeDecodeError.
+    """
+    name = uploaded_file.name.lower()
+    if name.endswith(".csv"):
+        # Try UTF-8
+        try:
+            uploaded_file.seek(0)
+            return pd.read_csv(uploaded_file, encoding="utf-8")
+        except UnicodeDecodeError:
+            # Try latin-1
+            try:
+                uploaded_file.seek(0)
+                return pd.read_csv(uploaded_file, encoding="latin-1")
+            except UnicodeDecodeError:
+                # Last resort: ignore errors
+                uploaded_file.seek(0)
+                return pd.read_csv(uploaded_file, encoding="latin-1", errors="ignore")
     else:
+        uploaded_file.seek(0)
         return pd.read_excel(uploaded_file)
 
 
@@ -115,7 +133,6 @@ def apply_mapping(df1, df2):
     }
 
     # ---- Build df1 indexed by normalized ID, using LAST record per ID ----
-    # Drop duplicates so index is UNIQUE (this fixes InvalidIndexError)
     df1_dedup = df1.drop_duplicates(subset=["_id_norm"], keep="last")
     df1_indexed = df1_dedup.set_index("_id_norm")
 
@@ -143,17 +160,12 @@ def apply_mapping(df1, df2):
         if tgt_col not in df2.columns:
             continue
 
-        # Series with UNIQUE index (thanks to drop_duplicates above)
-        series_map = df1_indexed[src_col]
-
-        # Map values by normalized ID
+        series_map = df1_indexed[src_col]  # unique index thanks to dedup
         mapped = df2["_id_norm"].map(series_map)
 
-        # Overwrite df2 values with mapped where not null,
-        # otherwise keep original df2 value.
         df2[tgt_col] = mapped.combine_first(df2[tgt_col])
 
-    # Drop helper columns
+    # Drop helper columns from both frames
     df1.drop(columns=["_id_norm"], inplace=True)
     df2.drop(columns=["_id_norm"], inplace=True)
 
