@@ -114,8 +114,10 @@ def apply_mapping(df1, df2):
         "unique_ids_unmapped": int(unique_ids_unmapped),
     }
 
-    # Build df1 indexed by normalized ID for fast mapping
-    df1_indexed = df1.set_index("_id_norm")
+    # ---- Build df1 indexed by normalized ID, using LAST record per ID ----
+    # Drop duplicates so index is UNIQUE (this fixes InvalidIndexError)
+    df1_dedup = df1.drop_duplicates(subset=["_id_norm"], keep="last")
+    df1_indexed = df1_dedup.set_index("_id_norm")
 
     # Map from df1 col -> df2 col
     mapping_pairs = {
@@ -141,7 +143,10 @@ def apply_mapping(df1, df2):
         if tgt_col not in df2.columns:
             continue
 
+        # Series with UNIQUE index (thanks to drop_duplicates above)
         series_map = df1_indexed[src_col]
+
+        # Map values by normalized ID
         mapped = df2["_id_norm"].map(series_map)
 
         # Overwrite df2 values with mapped where not null,
